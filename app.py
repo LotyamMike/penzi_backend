@@ -19,16 +19,16 @@ app = Flask(__name__)
 # Configure CORS - only allow requests from your React frontend
 CORS(app, resources={
     r"/api/*": {
-        "origins": "http://localhost:3000",  # Specifically allow your React frontend
-        "methods": ["GET", "POST", "PUT", "DELETE", "OPTIONS"],
-        "allow_headers": ["Content-Type", "Authorization"]
+        "origins": ["http://localhost:3000"],  # Your React app's URL
+        "methods": ["GET"],
+        "allow_headers": ["Content-Type"]
     }
 })
 
 # Test route to verify server is running
 @app.route("/")
-def home():
-    return "Penzi SMS Server is running"
+def index():
+    return "Penzi  Server is running" 
 
 @app.route("/test-db", methods=['GET'])
 def test_db():
@@ -672,68 +672,45 @@ def get_location_analytics():
 @app.route("/api/penzi/users", methods=["GET"])
 def get_users():
     try:
+        print("Attempting to fetch users...")  # Debug log
         with get_session() as session:
             users = session.query(User).all()
-            user_list = []
-            
-            for user in users:
-                # Get additional details
-                details = session.query(UserMoreDetails).filter_by(user_id=user.id).first()
-                description = session.query(UserSelfDescription).filter_by(user_id=user.id).first()
-                match = session.query(Match).filter_by(matched_user_id=user.id).first()
-                
-                user_data = {
-                    "id": user.id,
-                    "name": user.name,
-                    "age": user.age,
-                    "gender": user.gender,
-                    "county": user.county,
-                    "town": user.town,
-                    "phone": match.phone_number if match else None,
-                    "details": {
-                        "education": details.level_of_education if details else None,
-                        "profession": details.profession if details else None,
-                        "marital_status": details.marital_status if details else None,
-                        "religion": details.religion if details else None,
-                        "ethnicity": details.ethnicity if details else None
-                    } if details else None,
-                    "created_at": user.created_at.isoformat()
-                }
-                user_list.append(user_data)
-                
-            return jsonify({"users": user_list}), 200
+            user_count = len(users)
+            print(f"Found {user_count} users")  # Debug log
+            return jsonify({
+                "users": [{
+                    'id': user.id,
+                    'name': user.name,
+                    'age': user.age,
+                    'gender': user.gender,
+                    'county': user.county,
+                    'town': user.town,
+                    'created_at': user.created_at.isoformat()
+                } for user in users]
+            })
     except Exception as e:
+        print(f"Error in get_users: {str(e)}")  # Debug log
         return jsonify({"error": str(e)}), 500
 
 @app.route("/api/penzi/messages", methods=["GET"])
 def get_messages():
     try:
+        # Add some debug logging
+        print("Fetching messages...")
         with get_session() as session:
-            messages = session.query(Message).order_by(Message.created_at.desc()).all()
-            print(f"Successfully retrieved {len(messages)} messages")
-            message_list = []
-            
-            for message in messages:
-                try:
-                    user = session.query(User).get(message.user_id)
-                    match = session.query(Match).filter_by(matched_user_id=message.user_id).first()
-                    
-                    message_data = {
-                        "id": message.id,
-                        "user_name": user.name if user else "Unknown",
-                        "phone": match.phone_number if match else None,
-                        "direction": message.message_direction,
-                        "text": message.message_text,
-                        "created_at": message.created_at.isoformat()
-                    }
-                    message_list.append(message_data)
-                except Exception as e:
-                    print(f"Error processing message {message.id}: {str(e)}")
-                    continue
-                
-            return jsonify({"messages": message_list}), 200
+            messages = session.query(Message).all()
+            print(f"Found {len(messages)} messages")
+            return jsonify({
+                "messages": [{
+                    'id': message.id,
+                    'direction': message.message_direction,
+                    'text': message.message_text,
+                    'created_at': message.created_at.isoformat()
+                } for message in messages]
+            })
     except Exception as e:
-        return jsonify({"error": str(e)}), 500
+        print(f"Error fetching messages: {str(e)}")
+        return jsonify({"error": "Failed to fetch messages"}), 500
 
 @app.route("/api/penzi/dashboard/stats", methods=["GET"])
 def get_stats():
@@ -877,7 +854,7 @@ def get_stats():
         print(f"Error in dashboard stats: {str(e)}")
         return jsonify({"error": str(e)}), 500
 
-@app.route("/api/penzi/users/export", methods=['GET'])
+@app.route("/api/penziusers/export", methods=['GET'])
 def export_users():
     try:
         with get_session() as session:
@@ -935,34 +912,118 @@ def not_found(e):
 def server_error(e):
     return jsonify({"error": "Internal server error"}), 500
 
-@app.route("/api/penzi/users/<int:user_id>/messages", methods=["GET"])
+@app.route('/api/penzi/users/<int:user_id>', methods=['GET'])
+def get_user_details(user_id):
+    try:
+        print(f"Fetching details for user ID: {user_id}")
+        with get_session() as session:
+            # Get all messages for the user
+            messages = session.query(Message).filter(
+                Message.user_id == user_id
+            ).order_by(Message.created_at.asc()).all()
+
+            user = session.query(User).filter(User.id == user_id).first()
+            
+            if not user:
+                print(f"User {user_id} not found")
+                return jsonify({"error": "User not found"}), 404
+
+            print(f"Found {len(messages)} messages for user")
+
+            # Initialize data containers
+            registration_data = {}
+            details_data = {}
+            description = None
+
+            # Process all messages to extract information
+            for message in messages:
+                text = message.message_text.lower()
+                print(f"Processing message: {text[:50]}...")  # Log first 50 chars
+
+                # Process START message
+                if text.startswith('start#'):
+                    parts = message.message_text.split('#')
+                    if len(parts) >= 6:
+                        registration_data = {
+                            'name': parts[1],
+                            'age': parts[2],
+                            'gender': parts[3],
+                            'county': parts[4],
+                            'town': parts[5].strip()
+                        }
+                        print(f"Extracted registration data: {registration_data}")
+
+                # Process DETAILS message
+                elif text.startswith('details#'):
+                    parts = message.message_text.split('#')
+                    if len(parts) >= 6:
+                        details_data = {
+                            'education': parts[1],
+                            'profession': parts[2],
+                            'marital_status': parts[3],
+                            'religion': parts[4],
+                            'ethnicity': parts[5].strip()
+                        }
+                        print(f"Extracted details data: {details_data}")
+
+                # Process MYSELF message
+                elif text.startswith('myself'):
+                    description = message.message_text.replace('MYSELF', '', 1).strip()
+                    print(f"Extracted description: {description}")
+
+            # Combine all data
+            user_data = {
+                'id': user.id,
+                'name': registration_data.get('name', user.name),
+                'age': int(registration_data.get('age', user.age)),
+                'gender': registration_data.get('gender', user.gender),
+                'county': registration_data.get('county', user.county),
+                'town': registration_data.get('town', user.town),
+                'created_at': user.created_at.isoformat() if user.created_at else None,
+                'details': {
+                    'education': details_data.get('education'),
+                    'profession': details_data.get('profession'),
+                    'marital_status': details_data.get('marital_status'),
+                    'religion': details_data.get('religion'),
+                    'ethnicity': details_data.get('ethnicity')
+                },
+                'description': description
+            }
+            
+            print(f"Final user data being returned: {user_data}")
+            return jsonify(user_data)
+            
+    except Exception as e:
+        print(f"Error in get_user_details: {str(e)}")
+        print(f"Exception type: {type(e)}")
+        import traceback
+        print(traceback.format_exc())
+        return jsonify({"error": str(e)}), 500
+
+@app.route('/api/penzi/users/<int:user_id>/messages', methods=['GET'])
 def get_user_messages(user_id):
     try:
+        print(f"Fetching messages for user_id: {user_id}")
         with get_session() as session:
-            user = session.query(User).get(user_id)
-            if not user:
-                return jsonify({"error": "User not found"}), 404
-                
-            messages = session.query(Message)\
-                .filter_by(user_id=user_id)\
-                .order_by(Message.created_at.desc())\
-                .all()
-                
-            message_list = [{
-                "id": msg.id,
-                "direction": msg.message_direction,
-                "text": msg.message_text,
-                "created_at": msg.created_at.isoformat()
-            } for msg in messages]
-                
-            return jsonify({
-                "user": {
-                    "id": user.id,
-                    "name": user.name
-                },
-                "messages": message_list
-            }), 200
+            messages = session.query(Message).filter(
+                Message.user_id == user_id
+            ).order_by(Message.created_at.desc()).all()
+            
+            print(f"Found {len(messages)} messages")
+            
+            formatted_messages = [{
+                'id': message.id,
+                'message_text': message.message_text,
+                'message_direction': message.message_direction,
+                'created_at': message.created_at.isoformat(),
+                'user_id': message.user_id
+            } for message in messages]
+            
+            print(f"Returning {len(formatted_messages)} formatted messages")
+            return jsonify({"messages": formatted_messages})
+            
     except Exception as e:
+        print(f"Error fetching messages: {str(e)}")
         return jsonify({"error": str(e)}), 500
 
 # Only run the app if this file is run directly
