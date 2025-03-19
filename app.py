@@ -703,12 +703,10 @@ def get_users():
                 
             return jsonify({"users": user_list}), 200
     except Exception as e:
-        print(f"Error fetching users: {str(e)}")  # Add debug logging
         return jsonify({"error": str(e)}), 500
 
 @app.route("/api/penzi/messages", methods=["GET"])
 def get_messages():
-    print(f"Received messages request at {datetime.now()}")
     try:
         with get_session() as session:
             messages = session.query(Message).order_by(Message.created_at.desc()).all()
@@ -735,7 +733,6 @@ def get_messages():
                 
             return jsonify({"messages": message_list}), 200
     except Exception as e:
-        print(f"Error in messages endpoint: {str(e)}")
         return jsonify({"error": str(e)}), 500
 
 @app.route("/api/penzi/dashboard/stats", methods=["GET"])
