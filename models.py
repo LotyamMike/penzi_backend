@@ -29,7 +29,6 @@ class Match(Base):
     id = Column(Integer, primary_key=True)
     request_id = Column(Integer, ForeignKey('match_requests.id'), nullable=False)
     matched_user_id = Column(Integer, ForeignKey('users.id'), nullable=False)
-    phone_number = Column(String(20), nullable=False)
     displayed = Column(Integer, default=0)
     created_at = Column(DateTime, default=datetime.utcnow)
 
